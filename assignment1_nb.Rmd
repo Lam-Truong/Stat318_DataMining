@@ -1,0 +1,283 @@
+---
+title: "Stat318 Assignment 1"
+subtitle: "TRIEN LAM TRUONG - 75381613"
+output:
+  html_notebook: default
+  extra_dependencies: ["float"]
+  html_document:
+    df_print: paged
+  pdf_document: 
+---
+
+### Question 1
+
+#### A.
+
+In regression setting, Mean Square Error (MSE) is a metric to measure the quality of fit of the model. It measures how well our prediction actually match the true response value for a given observation. The MSE will be small if our predicted responses are very close to the true responses and vice versa.
+
+-   **Testing mean square error**: is the value of MSE using our model to predict values on an unseen, testing data which was not used to train the model.
+
+-   **Training mean square error**: is the value of MSE using our model to predict values on a training dataset which was used to train the model.
+
+Generally, it is more important that our model performs well with the unseen, testing data. That is, we want our testing MSE to be small.
+
+#### B.
+
+-   **Linear regression model:** The model is not flexible and the model makes assumption about shape of the true regression model. Hence, it has a high bias. Therefore, if the true regression model is not linear, the linear regression model will produce a high training MSE and high testing MSE. If the true regression model is in fact linear the model will produce a low training and testing MSE.
+
+-   **Low polynomial model**: As we increase the flexibility of the model by using polynomial model, the model adapts better to the shape of the data in the training dataset. Therefore produces lower training MSE. However, as we use a more flexible approach, the process tends to increase the variance. The testing MSE will increase if the true regression model is not linear or decrease otherwise.
+
+-   **High degree polynomial model**: Similarly, higher degree polynomial will give our model even more flexibility. Training MSE will decrease even more. However, as discuss above, as flexibility increases so as variance. If the model follows the data too closely, it is unlikely that using different training dataset will give us the same estimate f, and very unlikely that it will be close to the true regression model. Therefore, given unseen, different test dataset. It will perform poorly and produce high testing MSE. This is known as over fitting.
+
+#### C.
+
+The process of finding the best polynomial degree with respect to the test MSE is related to changing the flexibility of the model. It is the concept of **Bias-Variance Trade off**. Where increasing the model flexibility (higher degree of polynomial) we are also increasing the Variance and Decreasing the Bias. We need to find the point at which increasing the variance gives us no beneficial decrease in Bias returning the best model.
+
+### Question 2
+
+#### A. Fitting kNN with different k values and obtain testing and training MSE for each k value
+
+Load the data and packages needed for the task
+
+```{r}
+knitr::opts_chunk$set(fig.pos = "H", out.extra = "")
+library(tidyverse)
+library(purrr)
+library(patchwork)
+library(magrittr)
+theme_set(theme_minimal())
+```
+
+```{r}
+auto_train = read_csv('AutoTrain.csv')
+auto_test = read_csv('AutoTest.csv')
+```
+
+Given the kNN function
+
+```{r}
+## STAT318/462 kNN regression function
+
+kNN <- function(k,x.train,y.train,x.pred) {
+# 
+## This is kNN regression function for problems with
+## 1 predictor
+#
+## INPUTS
+#
+# k       = number of observations in nieghbourhood 
+# x.train = vector of training predictor values
+# y.train = vector of training response values
+# x.pred  = vector of predictor inputs with unknown
+#           response values 
+#
+## OUTPUT
+#
+# y.pred  = predicted response values for x.pred
+
+## Initialize:
+n.pred <- length(x.pred);		y.pred <- numeric(n.pred)
+
+## Main Loop
+for (i in 1:n.pred){
+  d <- abs(x.train - x.pred[i])
+  dstar = d[order(d)[k]]
+  y.pred[i] <- mean(y.train[d <= dstar])		
+}
+## Return the vector of predictions
+invisible(y.pred)
+}
+```
+
+```{r}
+my_k <- c(2, 5, 10, 20, 30, 50, 100)
+test_pred_values <- map(my_k, \(x) kNN(x, auto_train$horsepower, auto_train$mpg, auto_test$horsepower)) # Obtain predicted y using test data
+```
+
+```{r}
+# So now we have a list of lists contains the predicted values with different k
+k_names <- map_chr(as.character(my_k), \(x) str_c('k=', x))
+test_predictions <- set_names(data.frame(test_pred_values), k_names)
+
+#Obtain MSE for the testing data
+test_MSE <- test_predictions %>% 
+  map_dbl(\(x) mean((auto_test$mpg - x)^2))
+test_MSE
+```
+
+```{r}
+#Do the same thing to get training MSE
+train_pred_values <- map(my_k, \(x) kNN(x, auto_train$horsepower, auto_train$mpg, auto_train$horsepower))
+train_predictions <- set_names(data.frame(train_pred_values), k_names)
+train_MSE <- train_predictions %>% 
+  map_dbl(\(x) mean((auto_train$mpg - x)^2))
+train_MSE
+```
+
+As expected the training MSE is lower than testing MSE.
+
+#### B. Which k value performed best
+
+```{r}
+which(test_MSE == min(test_MSE))
+```
+
+```{r}
+which(train_MSE == min(train_MSE))
+```
+
+```{r}
+mse_df <- cbind(k=my_k,test_MSE, train_MSE)
+
+ggplot(data = mse_df, aes(x = k)) + 
+  geom_line(aes(y = test_MSE, color = 'Test'), color = '#2E86C1', linewidth = 1.5) +
+  geom_line(aes(y = train_MSE, color = 'Train'), color = '#95A5A6', linewidth = 1.5) +
+  annotate("text", x = 2, y = test_MSE[1], label = "Test MSE", vjust = -0.5, hjust = -0.2, color = "#2E86C1", size = 4) +
+  annotate("text", x = 2, y = train_MSE[1], label = "Train MSE", vjust = -0.5, hjust = -0.2, color = "#95A5A6", size = 4) +
+  scale_x_continuous(breaks = my_k) +
+  geom_point(aes(y = test_MSE), color = ifelse(my_k== 20, "#F39C12", "#85C1E9"), size = 3)+
+  geom_point(aes(y = train_MSE, alpha=1.), color = '#CCD1D1', size = 3)+
+  theme(panel.grid = element_blank(),
+        plot.title = element_text(size = 18)) +
+  labs(
+    title='Testing vs Training MSE Comparisions',
+    x = 'k', y = '',
+    caption = 'Across KNN models with different k values'
+  ) +
+  guides(color='none', alpha='none')
+```
+
+**Observation**:
+
+-   k=20 has the lowest testing MSE (17.31858) while for training MSE k=2 has the lowest value of 11.67317.
+
+-   As also seen from the plot test MSE reach the lowest point when k = 20.
+
+-   Our decision when choosing k for a model should be based on the testing MSE. Therefore model with k=20 performed best.
+
+#### C. Plot the training data, testing data and the best kNN model in the same figure
+
+```{r}
+p1 <- ggplot(data=auto_train) +
+  geom_point(aes(x=horsepower, y=mpg, alpha=1.)) +
+  ggtitle('Training Set') +
+  geom_point(aes(y = train_predictions$`k=20`, x=auto_train$horsepower, color = 'red')) + guides(color='none', alpha='none')
+
+p2 <- ggplot(data=auto_test) +
+  geom_point(aes(x=horsepower, y=mpg, alpha=1.)) +
+  ggtitle('Testing Set') +
+  geom_point(aes(y = test_predictions$`k=20`, x=auto_test$horsepower, color = 'red')) +guides(color='none', alpha='none')
+
+# For complete dataset
+auto <- rbind(auto_train, auto_test)
+modelk20_predictions <- kNN(20, auto_train$horsepower, auto_train$mpg, auto$horsepower)
+
+p3 <- ggplot(data=auto) +
+  geom_point(aes(x=horsepower, y=mpg, alpha=1.)) +
+  geom_point(aes(y = modelk20_predictions, x=auto$horsepower, color = 'red')) + guides(color='none', alpha='none') +
+  ggtitle('Complete Dataset')
+
+# Combine all plots
+p1+p2+p3 + plot_annotation(
+  title='KNN Model Perfomance', theme = theme(plot.title = element_text(size = 18)),
+  subtitle='using K = 20',
+  caption="Red dots are KNN Regression model's predictions"
+) 
+```
+
+#### D. Bias-Variance trade off
+
+-   When using low k value, the algorithm will pick only a few numbers of observations which are close to each others, hence the flexibility of the model increases as the model will follow very closely to the given training data leading to over-fitting (high variance).
+
+-   In contrast, using very high value leading to a high bias (Our estimator is very different from the true function) The model cannot capture the true regression model, will also lead to poor performance of the model.
+
+-   Our best model was in fact using k value laid somewhere in between.
+
+### Question 3
+
+#### A. Plot the functions
+
+```{r}
+f0 <- function(x) dnorm(x, mean = 0, sd = 1)
+f1 <- function(x) ifelse(x < 0, 0, 0.5 * exp(-0.5 * x))
+
+x_values <- seq(-10, 10, by=0.01) 
+
+df_class_0 <- data.frame(x = x_values, density = 0.5 * f0(x_values), class = "Class 0")
+df_class_1 <- data.frame(x = x_values, density = 0.5 * f1(x_values), class = "Class 1")
+df_combined <- rbind(df_class_0, df_class_1)
+
+plot_q3 <- ggplot(df_combined, aes(x = x, y = density, color = class)) +
+  geom_line(linewidth = 1) +
+  labs(x = "X", y = 'Density', title = "Density Functions of The Given Classes",
+       color = NULL) +
+  scale_color_manual(values = c("#457887", "#E78541"))
+plot_q3
+```
+
+#### B. Find the Bayes decision boundary
+
+We know: $\pi_0f_0(x) \le \pi_1f_1(x)$ on one side of the boundary and $\pi_0f_0(x) \ge \pi_1f_1(x)$ on the other side of the boundary (\*)
+
+From the plot above we can visually identify the Bayes Decision Boundary where it satisfies (\*) is at **x = 0**
+
+```{r}
+plot_q3 +
+  geom_vline(xintercept =0, linetype='twodash', linewidth=1.05) +
+  annotate("text", x = 3.5, y = 0.27, label = "Bayes Decision Boundary at x = 0", color = "black", size = 2.5)
+```
+
+#### 
+
+#### C. Classify observation X = 3
+
+Our Bayes Classifier
+
+$$
+\hat{f}(x) = \begin{cases} 
+      1 & \text{if } x > 0 \\
+      0 & \text{otherwise}
+\end{cases}
+$$
+
+For observation X = x if x \<= 0 it will be classified as class 0 and if x \> 0 it will be classified as class 1.
+
+In this case when X = 3 it will be classified as class 1.
+
+#### D. Error Rate
+
+From the plot above we can see that:
+
+-   **For class 1**: The Bayes classifier will classify any observations that is greater than 0 as class 1. And in class 1, the true observations are all greater than 0. Hence, the model will not mis-classify class 1. The proportion of class 1 will get a false classification is *0*.
+
+-   **For class 0**: The Bayes decision boundary is at x = 0 = $\mu$ and since it is normally distributed we know that 50% of the observations will be laid above the mean and 50% below. Therefore, *50%* of the true observations in class 0 will be falsely classified.
+
+We can also further verify this by simulating some testing data based on the density distribution of the two given classes as we know their density distribution functions as well as their prior probability ($\pi_0$ = $\pi_1$ = 0.5)
+
+```{r}
+n_samples <- 1000
+set.seed(75381613)
+
+test_values0 <- data.frame(x = rnorm(n_samples, 0, 1), class = 'Class 0')
+test_values1 <- data.frame(x = rexp(n_samples, rate=1/2), class = 'Class 1') # rate = lambda = 1/2
+
+test_data <- rbind(test_values0, test_values1)
+
+# Using Bayes Decision Boundary x = 0
+test_data$prediction <- ifelse(test_data$x > 0, "Class 1", "Class 0")
+test_data %>% head()
+```
+
+```{r}
+# Now we can calculate the false classification rate for each class
+false_class_0 <- test_data %>% 
+  filter(class == 'Class 0' & prediction == 'Class 1') %>% 
+  nrow()
+
+false_class_1 <- test_data %>% 
+  filter(class == 'Class 1' & prediction == 'Class 0') %>% 
+  nrow()
+
+print(paste('The proportion of falsely classified elements of class 0 is: ', false_class_0 / n_samples))
+print(paste('The proportion of falsely classified elements of class 1 is: ', false_class_1 / n_samples))
+```
