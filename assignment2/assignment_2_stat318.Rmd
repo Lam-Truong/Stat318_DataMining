@@ -1,0 +1,234 @@
+---
+title: "Assignment 2"
+author: "Lam | ID:75381613"
+date: "2024-03-27"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+## Question 1
+
+The fitted logistic regression model can be written as follow:
+
+$$
+Pr(y=1\mid X_1 = x_1,X_2 = x_2) = \frac{\exp(\beta_0+\beta_1x_1+\beta_2x_2)}{1+
+\exp(\beta_0+\beta_1x_1+\beta_2x_2)}
+=
+\frac{\exp(-16+1.4x_1+0.3x_2)}{1+
+\exp(-16+1.4x_1+0.3x_2)}
+$$
+
+### a.
+
+Given $x_1 = 5, x_2 = 36$
+
+Using the equation gives:
+
+```{r}
+exp(-16 + 1.4*5 + 0.3*36) / (1 + exp(-16 + 1.4*5 + 0.3*36))
+```
+
+So the probability of a student getting a GPA value \>= 7 in STAT318 if they study for 5 hours per week and attend all 36 classes is **0.85**.
+
+### b.
+
+So we are given:
+
+$$
+0.5 = \frac{\exp(-16+1.4*x_1+0.3*18)}{1+\exp(-16+1.4*x_1+0.3*18)}
+$$
+
+Set $u = 1.4*x_1 -10.6$
+
+We have:
+
+$0.5 = \frac{\exp{(u)}}{1+\exp{(u)}}$
+
+$0.5 + 0.5* \exp{(u)} = \exp{(u)}$
+
+$\frac{1}{2} * \exp{(u)} = \frac{1}{2}$
+
+$\exp(u) = 1$
+
+$u = ln(1) = 0$
+
+$\Rightarrow 1.4*x_1 -10.6=0$
+
+$\Rightarrow x_1 = \frac{10.6}{1.4} = 7.57$
+
+So if a student attends 18 classes, to have a 50% chance of getting a GPA value \>= 7 in STAT318, they need to spend around **7.5 hours** study time per week.
+
+## Question 2
+
+```{r}
+library(tidyverse)
+library(caret)     # Provides useful confusion matrix function
+library(MASS)      # For LDA and QDA
+library(yardstick)
+
+bank_train <- read_csv('BankTrain.csv')
+bank_test <- read_csv('BankTest.csv')
+```
+
+### a.
+
+```{r}
+glm_model <- glm(data = bank_train, y~ x1 + x3 ,family = binomial)
+glm_model %>% summary
+```
+
+**Observation**
+
+-   The associate P-values for our predictor x1 and x3 are both very small indicating they have significant impact in predicting y.
+
+-   The model can be written as the following equation:
+
+    $$
+    logit(Pr(Y=1\mid X_1=x_1, X_3=x_3)) = -1.31x_1 -0.21x_3 + 0.22
+    $$
+
+-   The negative coefficients indicate that if we have a positive $x_1$ (variance of a Wavelet Transformed image) or a positive $x_2$ (kurtosis of a Wavelet Transformed image) then it is less likely that a given banknote is a forged banknote.
+
+### b.
+
+```{r}
+# Obtain the predicted probability on the training set
+glm_predicted_prob <- predict(glm_model, type='response') 
+glm_predicted_prob %>% head()
+
+# Obtain predictions on training set using .5 boundary
+pred_training <- ifelse(glm_predicted_prob > 0.5, yes = 1, no = 0)
+pred_training %>% head()
+```
+
+```{r}
+table(pred_training, bank_train$y)
+```
+
+```{r}
+# Create a function to obtain predictions for different boundary and return a confusion matrix
+get_confusion_matrix <- function(glm_model ,boundary, test_x = NULL, test_y = NULL){
+  pred_probability <- predict(glm_model, test_x, type='response')
+  predictions <- ifelse(pred_probability > boundary, 1, 0)
+  predictions = factor(predictions)
+  test_y <- factor(test_y)
+  confusion_matrix <- confusionMatrix(data = predictions, reference = test_y, positive= "1")
+  return(list(confusion_matrix = confusion_matrix, predictions = predictions))
+}
+```
+
+#### i. Using 0.5 as decision boundary
+
+So if prediction probability of an observation is \> 0.5 then it will be classified as forged banknote and if \<= 0.5 it will be classified as a genuine banknote.
+
+```{r}
+test_data <- bank_test %>% dplyr::select(x1, x3)
+
+# Obtain confusion matrix using boundary 0.5
+matrix_0.5 <- get_confusion_matrix(glm_model, 0.5, test_data, bank_test$y)
+matrix_0.5$confusion_matrix$table
+```
+
+From the confusion matrix:
+
+-   **TP**: 152 - the model correctly predicted 152 instances of the positive class (forged banknote).
+
+-   **TN**: 204 - the model correctly predicted 204 instances of negative class (genuine banknote).
+
+-   **FP**: 32- the model predicted positive but the true classes are not.
+
+-   **FN**: 24- the model predicted negative but the true classes are not.
+
+```{r}
+# model accuracy
+(204+152) / 412
+```
+
+The accuracy of the model is 0.86 meaning that our model has correctly classify the banknotes 86% of the time.
+
+#### ii. 0.3 and 0.6 decision boundaries
+
+```{r}
+matrix_0.3 <- get_confusion_matrix(glm_model, 0.3, test_data, bank_test$y)
+matrix_0.6 <- get_confusion_matrix(glm_model, 0.6, test_data, bank_test$y)
+
+matrix_0.3$confusion_matrix$table
+matrix_0.6$confusion_matrix$table
+```
+
+```{r}
+accuracy_0.3 = (183 + 171) / 412
+accuracy_0.6 = (210 + 141) / 412
+
+paste('Accuracy of model using threshold 0.3 is: ', accuracy_0.3)
+paste('Accuracy of model using threshold 0.6 is: ', accuracy_0.6)
+```
+
+-   The accuracy of the model using 0.3 and 0.6 are not big of a difference (0.8592 vs 0.8519).
+-   The TP of model_0.6 is lower than model_0.3
+-   The TN of model_0.6 is higher than model_0.3
+-   Model_0.6 has lower FP and higher FN than model_0.3
+
+```{r}
+paste('Precision: ', matrix_0.3$confusion_matrix$byClass['Precision'])
+paste('Recall: ', matrix_0.3$confusion_matrix$byClass['Recall'])
+```
+
+```{r}
+paste('Precision: ', matrix_0.6$confusion_matrix$byClass['Precision'])
+paste('Recall: ', matrix_0.6$confusion_matrix$byClass['Recall'])
+```
+
+So in general, the **Recall** of model_0.3 is very high **0.97** this means that the model has correctly captured 97% of the actual positive class (in context forged note). But there is a trade off, the precision of the model also decreases, that means the model also produces more False Positive.
+
+In context, the model using threshold 0.3 is will correctly capture 97% of the forged bank note. But also will more often wrongly predict genuine notes as forged. The model will be preferred in a situation which it is very important to capture all forged notes. Such as in a bank when customer deposit cash to the bank. Yes, the model will sometimes catches genuine notes as forged but at least we will capture all (97%) the forged notes.
+
+### Question 3
+
+#### a. Linear Discriminant Analysis
+
+```{r}
+# Fit LDA model
+lda_model <- lda(y ~ x1 + x3, data=bank_train)
+lda_model
+```
+
+```{r}
+# Compute predictions
+lda_pred <- predict(lda_model, test_data)
+lda_pred %>% names()
+```
+
+```{r}
+# Compute confusion matrix
+confusionMatrix(factor(lda_pred$class), factor(bank_test$y), positive = '1')
+```
+
+#### b. Quadratic Discriminant Analysis
+
+```{r}
+qda_model <- qda(y ~ x1 + x3, data=bank_train)
+qda_model
+```
+
+```{r}
+qda_pred <- predict(qda_model, test_data)
+qda_pred %>% names()
+```
+
+```{r}
+confusionMatrix(factor(qda_pred$class), factor(bank_test$y), positive = '1')
+```
+
+#### c. Results, comparison and recommendation
+
+-   The accuracy of the LDA model is **0.86** and of QDA model is **0.88**.
+
+-   Comparing to our logistic regression model (using $\theta=0.5$ from question 2 LDA model is performing equally well and QDA performs slightly better by correctly classify banknotes 88% of the time.
+
+-   It will depend on what we want to achieve to select the best model for this problems. If our goal is to accurately predict or classify banknotes we do not care about interpret-ability of the model then QDA is our best options. However, if we do care about interpretation of the model logistic regression is easier to interpret.
+
+-   It is important to keep in mind that we can adjust our decision boundary $\theta$ to adjust the model sensitivity and specificity based on our domain knowledge to the problem. Luckily, all of our model can easily be done so to adapt to the problem.
+
+-   For this problem I would recommend QDA model, this model will much likely to be used in bank and to detect forged notes during transactions. So it will be important to have a high recall or sensitivity. QDA has sensitivity of 0.89 and also highest in accuracy compared to all model. Moreover, we can fine tuning the model by adjusting the threshold to increase the sensitivity to match our problem just like we did with the logistic model in previous question.
