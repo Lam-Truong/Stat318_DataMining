@@ -1,0 +1,339 @@
+---
+title: "Assignment 3"
+author: "Lam"
+date: "2024-05-01"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+# Question 1
+
+Load the libraries and read in the dataset
+
+```{r}
+library(tidyverse)
+library(ISLR2)
+library(reshape2)
+library(rpart.plot)
+
+theme_set(theme_minimal())
+```
+
+```{r}
+data("OJ")
+```
+
+```{r}
+OJ %>% str()
+```
+
+### a. EDA
+
+**Question**: Is one brand bought more often than the other one?
+
+```{r}
+
+p <- ggplot(data=OJ, aes(x = Purchase)) +
+  geom_bar(aes(fill=Purchase), show.legend = FALSE) +
+  labs(
+    title = 'Number of Purchases by Brand',
+    x = 'Brand',
+    y = 'Purchases'
+  )
+
+p_dt <- layer_data(p)
+
+p + annotate(geom='text', label=p_dt$count, x=p_dt$x, y=p_dt$y+30)
+```
+
+```{r}
+# Number of purchases by Brands by percentage
+table(OJ$Purchase) %>% prop.table()
+```
+
+61% of the total purchases in this dataset belongs to `CH` and only 38% of the `MM` purchases. Therefore, **Citrus Hill** seems to be more popular and bought more frequently than **Minute Maid**.
+
+**Question**: Which brand tends to be more expensive?
+
+```{r}
+OJ %>% select(PriceCH, PriceMM) %>%
+  melt(measure.vars = c('PriceCH', 'PriceMM')) %>% 
+  ggplot() + 
+  geom_boxplot(aes(x=variable, y=value, colour=variable),show.legend = FALSE) +
+  labs(
+    x = 'Brand',
+    y = 'Price',
+    title = 'Price Comparision by Brands'
+  ) +
+  scale_x_discrete(labels = c('CH', 'MM'))
+```
+
+```{r}
+summary(OJ$PriceCH)
+```
+
+```{r}
+summary(OJ$PriceMM)
+```
+
+From the side-by-side boxplot we can clearly see that `MM` is more expensive than `CH`. The bold horizontal line represents the average price of the brand. Most of the purchased price of `CH` is between 1.7 to 2.1 with the **average price of 1.86** while for `MM` is between 1.7 to 1.9 with **average price of 2.08.**
+
+So on average, Minute Maid is more expensive than Citrus Hill.
+
+### b. Train, test split
+
+```{r}
+set.seed(1113)
+OJ <- OJ %>% mutate(id = row_number())
+train <-  OJ %>% sample_frac(0.8)
+test <- anti_join(OJ, train, by='id')
+
+train <- train %>% select(c(-id))
+test <- test %>% select(c(-id))
+```
+
+```{r}
+train %>% dim()
+test %>% dim()
+```
+
+### c. Classification Tree
+
+```{r}
+library(tree)
+set.seed(1)
+# Fit the tree
+tree_clf <- tree(Purchase~., data=train) 
+summary(tree_clf)
+```
+
+Decision tree Misclassification error rate is 0.1694.
+
+```{r}
+# Record the error rate
+training_mis <- c(0.1694)
+```
+
+### Using 10 folds cross validation to prune it
+
+```{r}
+cv_tree <- cv.tree(tree_clf, FUN=prune.misclass, K = 10)
+
+cv_tree
+```
+
+```{r}
+plot(cv_tree$size, cv_tree$dev, type = 'b')
+
+x_vals <- cv_tree$size[which(cv_tree$dev == min(cv_tree$dev))]
+y_vals <- rep(min(cv_tree$dev), length(x_vals))
+points(x_vals, y_vals ,col = "#2E78B0", pch = 16)
+```
+
+It turns out that the optimal terminal nodes are 6 and 8 which has the lowest cross validated error. For interpretability and simplixity we will prune it to size 6 tree.
+
+```{r}
+# Prune 
+tree_clf_pruned <- prune.misclass(tree_clf, best = 6)
+tree_clf_pruned %>% summary() 
+```
+
+The pruned tree has misclassification error rate of 0.1694.
+
+```{r}
+training_mis <- c(training_mis, 0.1694)
+```
+
+### Visualize the tree
+
+```{r fig.height=6}
+plot(tree_clf_pruned)
+text(tree_clf_pruned, pretty = 0)
+```
+
+The feature `LoyalCH` (Customer brand loyalty for CH) seems to be very important to our model. This is to say that brand loyalty is an important factor on purchase decision.
+
+From the tree we can say that in general, if a customer is somewhat not loyal to Citrus Hill and the price different is small, they tend to make a purchase on Minute Maid. And if a customer is definitely not loyal to Citrus Hill they will purchase Minute Maid and vice versa.
+
+### d. Bagging
+
+Bagging is simply a special case of random forest where m = p (where p is the number of predictors and m is the number of variables randomly sampled as candidates at each split). So we can use **randomForest** library and set `mtry` = 17 to perform bagging.
+
+```{r}
+library(randomForest)
+```
+
+```{r}
+set.seed(2)
+bagged_clf <- randomForest(Purchase~., mtry=17 ,data = train, importance = TRUE)
+
+bagged_clf
+```
+
+```{r}
+# Calculate error rate for bagged model
+bagged_pred <- predict(bagged_clf, newdata = train)
+
+table(bagged_pred, train$Purchase)
+```
+
+```{r}
+# bagging misclassification error
+(2+7) / nrow(train)
+```
+
+Note that the misclassification error for our bagged model is extremely small. This is because the model is trained on bootstraped samples of the training set. And with enough trees (500 in our case), it can fit the data very well.
+
+Generally, it is more sensible to use OOB (out of bag) misclassification error when evaluating the model performance. In our case estimated **OOB error is 19.28%**.
+
+```{r}
+training_mis <- c(training_mis, 0.1928)
+```
+
+### e. Random Forest
+
+```{r}
+set.seed(3)
+# Default mtry for Random Forest Classifier is sqrt(p) = 4.12
+rf_clf <- randomForest(Purchase~., data = train) 
+
+rf_clf
+```
+
+```{r}
+rf_pred <- predict(rf_clf, newdata = train)
+table(rf_pred, train$Purchase)
+```
+
+```{r}
+# training misclassified error rate
+(17 + 32 ) / nrow(train)
+```
+
+The training error rate is **0.05** and OOB estimated error rate is **17.99%.**
+
+```{r}
+training_mis <- c(training_mis, 0.1799)
+```
+
+### f. Boosting
+
+```{r}
+library(gbm)
+```
+
+Encoding the response variable
+
+```{r}
+train$Purchase_coded <- recode(train$Purchase, 'CH' = 0, 'MM' = 1)
+test$Purchase_coded <- recode(test$Purchase, 'CH' = 0, 'MM' = 1)
+```
+
+```{r}
+set.seed(4)
+
+gbm_clf <- gbm(Purchase_coded~.-Purchase, data=train, distribution = 'bernoulli', n.trees = 500)
+
+gbm_clf
+```
+
+```{r}
+gbm_prob_train <- predict(gbm_clf, type = 'response', n.trees = 500)
+gbm_pred_train <- ifelse(gbm_prob_train < 0.5, 0, 1)
+mean(gbm_pred_train != train$Purchase_coded)
+```
+
+GBM has training misclassification rate of **0.133**
+
+```{r}
+training_mis <- c(training_mis, 0.133)
+```
+
+### g. Models Comparison
+
+```{r}
+# Function to put models error rate into a data frame for easy plotting
+create_error_df <- function(predictions_list, test_data){
+  error_list <- numeric(length(predictions_list))
+  for (i in seq_along(predictions_list)) {
+  if (names(predictions_list[i]) == 'GBM') {
+    error_list[i] <- mean(predictions_list[[i]] != test_data$Purchase_coded)
+  }
+  else(
+    error_list[i] <- mean(predictions_list[[i]] != test_data$Purchase)
+  )
+  }
+  df <- data.frame(Model = names(predictions_list), Misclassification_Rate = error_list)
+  return(df)
+}
+
+# compute predictions on test set
+tree_pred <- predict(tree_clf, newdata = test, type='class')
+tree_pruned_pred <- predict(tree_clf_pruned, newdata = test, type='class')
+bagged_pred <- predict(bagged_clf, newdata = test)
+rf_pred <- predict(rf_clf, newdata = test)
+
+gbm_prob <- predict(gbm_clf, newdata = test, type='response', n.trees = 500)
+gbm_pred <- ifelse(gbm_prob < 0.5, 0, 1) 
+```
+
+```{r}
+# Put models predictions in a list
+predictions_list <- list(Tree = tree_pred, Pruned_tree = tree_pruned_pred, Bagged = bagged_pred, Random_Forest = rf_pred, GBM = gbm_pred)
+
+# Testing error data frame
+models <- c('Tree', 'Pruned_tree', 'Bagged', 'Random_Forest', 'GBM')
+plot_data <- create_error_df(predictions_list, test)
+plot_data$Model <- factor(plot_data$Model, levels = models)
+
+# Training error data frame
+df <- data.frame(Model = factor(models, levels = models), Misclassification_Rate = training_mis)
+
+```
+
+```{r}
+# Join the two data frame
+joined_df <- left_join(plot_data, df, by = join_by(Model))
+colnames(joined_df) <- c('Model', 'Test', 'Train')
+joined_df %>% pivot_longer(cols = - Model, names_to = 'Data', values_to = 'Misclassification_Rate') -> joined_df
+
+# Visualize the results
+colour_scale <- c("#2E78B0", "#C4D0D9")
+joined_df %>% ggplot(aes(x = Model, y = Misclassification_Rate, fill=Data)) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  geom_text(aes(label = round(Misclassification_Rate, 3), color=Data), 
+            position = position_dodge(width = .9), 
+            vjust = -0.5, size = 3) +
+  scale_fill_manual(values = colour_scale) +
+  scale_colour_manual(values =colour_scale) +
+  labs(title = "Misclassification Rates by Models", x = "", y = "Misclassification Rate")
+```
+
+**Observation**
+
+-   On training data, GBM performs best with error rate of 0.133.
+
+-   However, on test data, to our surprise, Decision Tree, Pruned Decision Tree (Size 6) and GBM performs equally good with error rate of 0.196.
+
+-   On both train and test set, Bagging and Random Forest seem to have worse performance compared to other models.
+
+```{r label, out.width = "85%", fig.cap = "page 1"}
+knitr::include_graphics("assignment_3_q2.pdf")
+```
+
+```{r label2, out.width = "85%", fig.cap = "page 2", out.extra="page=2"}
+knitr::include_graphics("assignment_3_q2.pdf")
+```
+
+```{r label3, out.width = "85%", fig.cap = "page 3", out.extra="page=3"}
+knitr::include_graphics("assignment_3_q2.pdf")
+```
+
+```{r label4, out.width = "85%", fig.cap = "page 4", out.extra="page=4"}
+knitr::include_graphics("assignment_3_q2.pdf")
+```
+
+```{r label5, out.width = "85%", fig.cap = "page 5", out.extra="page=5"}
+knitr::include_graphics("assignment_3_q2.pdf")
+```
